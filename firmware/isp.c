@@ -21,6 +21,8 @@ uchar sck_spcr;
 uchar sck_spsr;
 uchar isp_hiaddr;
 
+uchar (*ispTransmit)(uchar);
+
 void spiHWenable() {
 	SPCR = sck_spcr;
 	SPSR = sck_spsr;
