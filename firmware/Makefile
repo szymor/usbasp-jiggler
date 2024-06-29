@@ -76,13 +76,13 @@ cpp:
 	$(COMPILE) -E main.c
 
 flash:
-	avrdude -c ${ISP} -p ${TARGET} -P ${PORT} -U flash:w:main.hex
+	avrdude -c ${ISP} -p ${TARGET} -U flash:w:main.hex
 
 fuses:
-	avrdude -c ${ISP} -p ${TARGET} -P ${PORT} -u -U hfuse:w:$(HFUSE):m -U lfuse:w:$(LFUSE):m
+	avrdude -c ${ISP} -p ${TARGET} -u -U hfuse:w:$(HFUSE):m -U lfuse:w:$(LFUSE):m
 
 avrdude:
-	avrdude -c ${ISP} -p ${TARGET} -P ${PORT} -v
+	avrdude -c ${ISP} -p ${TARGET} -v
 
 # Fuse atmega8 high byte HFUSE:
 # 0xc9 = 1 1 0 0   1 0 0 1 <-- BOOTRST (boot reset vector at 0x0000)
