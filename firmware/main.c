@@ -20,284 +20,140 @@
 
 #include "usbasp.h"
 #include "usbdrv.h"
-#include "isp.h"
-#include "clock.h"
-#include "tpi.h"
-#include "tpi_defs.h"
 
-static uchar replyBuffer[8];
+static volatile uchar ready = 0;
+static uchar phase = 0;
+static uchar reportBuffer[3] = {0, 1, 1};
 
-static uchar prog_state = PROG_STATE_IDLE;
-static uchar prog_sck = USBASP_ISP_SCK_AUTO;
+const char sintable[64] = {
+	0x00,
+	0x03,
+	0x06,
+	0x09,
+	0x0C,
+	0x0F,
+	0x12,
+	0x15,
+	0x18,
+	0x1C,
+	0x1F,
+	0x22,
+	0x25,
+	0x28,
+	0x2B,
+	0x2E,
+	0x30,
+	0x33,
+	0x36,
+	0x39,
+	0x3C,
+	0x3F,
+	0x41,
+	0x44,
+	0x47,
+	0x49,
+	0x4C,
+	0x4E,
+	0x51,
+	0x53,
+	0x55,
+	0x58,
+	0x5A,
+	0x5C,
+	0x5E,
+	0x60,
+	0x62,
+	0x64,
+	0x66,
+	0x68,
+	0x6A,
+	0x6C,
+	0x6D,
+	0x6F,
+	0x70,
+	0x72,
+	0x73,
+	0x74,
+	0x76,
+	0x77,
+	0x78,
+	0x79,
+	0x7A,
+	0x7B,
+	0x7C,
+	0x7C,
+	0x7D,
+	0x7E,
+	0x7E,
+	0x7F,
+	0x7F,
+	0x7F,
+	0x7F,
+	0x7F
+};
 
-static uchar prog_address_newmode = 0;
-static unsigned long prog_address;
-static unsigned int prog_nbytes = 0;
-static unsigned int prog_pagesize;
-static uchar prog_blockflags;
-static uchar prog_pagecounter;
+// taken from HID Descriptor Tool
+PROGMEM const char usbHidReportDescriptor[] = {
+    0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
+    0x09, 0x02,                    // USAGE (Mouse)
+    0xa1, 0x01,                    // COLLECTION (Application)
+    0x09, 0x01,                    //   USAGE (Pointer)
+    0xa1, 0x00,                    //   COLLECTION (Physical)
+    0x05, 0x09,                    //     USAGE_PAGE (Button)
+    0x19, 0x01,                    //     USAGE_MINIMUM (Button 1)
+    0x29, 0x03,                    //     USAGE_MAXIMUM (Button 3)
+    0x15, 0x00,                    //     LOGICAL_MINIMUM (0)
+    0x25, 0x01,                    //     LOGICAL_MAXIMUM (1)
+    0x95, 0x03,                    //     REPORT_COUNT (3)
+    0x75, 0x01,                    //     REPORT_SIZE (1)
+    0x81, 0x02,                    //     INPUT (Data,Var,Abs)
+    0x95, 0x01,                    //     REPORT_COUNT (1)
+    0x75, 0x05,                    //     REPORT_SIZE (5)
+    0x81, 0x03,                    //     INPUT (Cnst,Var,Abs)
+    0x05, 0x01,                    //     USAGE_PAGE (Generic Desktop)
+    0x09, 0x30,                    //     USAGE (X)
+    0x09, 0x31,                    //     USAGE (Y)
+    0x15, 0x81,                    //     LOGICAL_MINIMUM (-127)
+    0x25, 0x7f,                    //     LOGICAL_MAXIMUM (127)
+    0x75, 0x08,                    //     REPORT_SIZE (8)
+    0x95, 0x02,                    //     REPORT_COUNT (2)
+    0x81, 0x06,                    //     INPUT (Data,Var,Rel)
+    0xc0,                          //   END_COLLECTION
+    0xc0                           // END_COLLECTION
+};
+
+ISR(TIMER0_OVF_vect)
+{
+	ready = 1;
+	++phase;
+	uchar phasey = phase + 0x40;
+
+	char signx = phase & 0x80 ? -1 : 1;
+	char mirx = phase & 0x40;
+	char signy = phasey & 0x80 ? -1 : 1;
+	char miry = phasey & 0x40;
+
+	uchar ix = phase & 0x3f;
+	if (mirx) ix = 0x3f - ix;
+	uchar iy = phasey & 0x3f;
+	if (miry) iy = 0x3f - iy;
+
+	char vx = sintable[ix];
+	char vy = sintable[iy];
+	reportBuffer[1] = signx * (vx >> 4);
+	reportBuffer[2] = signy * (vy >> 4);
+}
 
 uchar usbFunctionSetup(uchar data[8]) {
+	usbRequest_t *rq = (void *)data;
 
-	uchar len = 0;
-
-	if (data[1] == USBASP_FUNC_CONNECT) {
-
-		/* set SCK speed */
-		if ((PINC & (1 << PC2)) == 0) {
-			ispSetSCKOption(USBASP_ISP_SCK_8);
-		} else {
-			ispSetSCKOption(prog_sck);
+	usbMsgPtr = reportBuffer;
+	if((rq->bmRequestType & USBRQ_TYPE_MASK) == USBRQ_TYPE_CLASS) { 
+		if(rq->bRequest == USBRQ_HID_GET_REPORT) {  
+			return sizeof(reportBuffer);
 		}
-
-		/* set compatibility mode of address delivering */
-		prog_address_newmode = 0;
-
-		ledRedOn();
-		ispConnect();
-
-	} else if (data[1] == USBASP_FUNC_DISCONNECT) {
-		ispDisconnect();
-		ledRedOff();
-
-	} else if (data[1] == USBASP_FUNC_TRANSMIT) {
-		replyBuffer[0] = ispTransmit(data[2]);
-		replyBuffer[1] = ispTransmit(data[3]);
-		replyBuffer[2] = ispTransmit(data[4]);
-		replyBuffer[3] = ispTransmit(data[5]);
-		len = 4;
-
-	} else if (data[1] == USBASP_FUNC_READFLASH) {
-
-		if (!prog_address_newmode)
-			prog_address = (data[3] << 8) | data[2];
-
-		prog_nbytes = (data[7] << 8) | data[6];
-		prog_state = PROG_STATE_READFLASH;
-		len = 0xff; /* multiple in */
-
-	} else if (data[1] == USBASP_FUNC_READEEPROM) {
-
-		if (!prog_address_newmode)
-			prog_address = (data[3] << 8) | data[2];
-
-		prog_nbytes = (data[7] << 8) | data[6];
-		prog_state = PROG_STATE_READEEPROM;
-		len = 0xff; /* multiple in */
-
-	} else if (data[1] == USBASP_FUNC_ENABLEPROG) {
-		replyBuffer[0] = ispEnterProgrammingMode();
-		len = 1;
-
-	} else if (data[1] == USBASP_FUNC_WRITEFLASH) {
-
-		if (!prog_address_newmode)
-			prog_address = (data[3] << 8) | data[2];
-
-		prog_pagesize = data[4];
-		prog_blockflags = data[5] & 0x0F;
-		prog_pagesize += (((unsigned int) data[5] & 0xF0) << 4);
-		if (prog_blockflags & PROG_BLOCKFLAG_FIRST) {
-			prog_pagecounter = prog_pagesize;
-		}
-		prog_nbytes = (data[7] << 8) | data[6];
-		prog_state = PROG_STATE_WRITEFLASH;
-		len = 0xff; /* multiple out */
-
-	} else if (data[1] == USBASP_FUNC_WRITEEEPROM) {
-
-		if (!prog_address_newmode)
-			prog_address = (data[3] << 8) | data[2];
-
-		prog_pagesize = 0;
-		prog_blockflags = 0;
-		prog_nbytes = (data[7] << 8) | data[6];
-		prog_state = PROG_STATE_WRITEEEPROM;
-		len = 0xff; /* multiple out */
-
-	} else if (data[1] == USBASP_FUNC_SETLONGADDRESS) {
-
-		/* set new mode of address delivering (ignore address delivered in commands) */
-		prog_address_newmode = 1;
-		/* set new address */
-		prog_address = *((unsigned long*) &data[2]);
-
-	} else if (data[1] == USBASP_FUNC_SETISPSCK) {
-
-		/* set sck option */
-		prog_sck = data[2];
-		replyBuffer[0] = 0;
-		len = 1;
-
-	} else if (data[1] == USBASP_FUNC_TPI_CONNECT) {
-		tpi_dly_cnt = data[2] | (data[3] << 8);
-
-		/* RST high */
-		ISP_OUT |= (1 << ISP_RST);
-		ISP_DDR |= (1 << ISP_RST);
-
-		clockWait(3);
-
-		/* RST low */
-		ISP_OUT &= ~(1 << ISP_RST);
-		ledRedOn();
-
-		clockWait(16);
-		tpi_init();
-	
-	} else if (data[1] == USBASP_FUNC_TPI_DISCONNECT) {
-
-		tpi_send_byte(TPI_OP_SSTCS(TPISR));
-		tpi_send_byte(0);
-
-		clockWait(10);
-
-		/* pulse RST */
-		ISP_OUT |= (1 << ISP_RST);
-		clockWait(5);
-		ISP_OUT &= ~(1 << ISP_RST);
-		clockWait(5);
-
-		/* set all ISP pins inputs */
-		ISP_DDR &= ~((1 << ISP_RST) | (1 << ISP_SCK) | (1 << ISP_MOSI));
-		/* switch pullups off */
-		ISP_OUT &= ~((1 << ISP_RST) | (1 << ISP_SCK) | (1 << ISP_MOSI));
-
-		ledRedOff();
-	
-	} else if (data[1] == USBASP_FUNC_TPI_RAWREAD) {
-		replyBuffer[0] = tpi_recv_byte();
-		len = 1;
-	
-	} else if (data[1] == USBASP_FUNC_TPI_RAWWRITE) {
-		tpi_send_byte(data[2]);
-	
-	} else if (data[1] == USBASP_FUNC_TPI_READBLOCK) {
-		prog_address = (data[3] << 8) | data[2];
-		prog_nbytes = (data[7] << 8) | data[6];
-		prog_state = PROG_STATE_TPI_READ;
-		len = 0xff; /* multiple in */
-	
-	} else if (data[1] == USBASP_FUNC_TPI_WRITEBLOCK) {
-		prog_address = (data[3] << 8) | data[2];
-		prog_nbytes = (data[7] << 8) | data[6];
-		prog_state = PROG_STATE_TPI_WRITE;
-		len = 0xff; /* multiple out */
-	
-	} else if (data[1] == USBASP_FUNC_GETCAPABILITIES) {
-		replyBuffer[0] = USBASP_CAP_0_TPI;
-		replyBuffer[1] = 0;
-		replyBuffer[2] = 0;
-		replyBuffer[3] = 0;
-		len = 4;
 	}
-
-	usbMsgPtr = replyBuffer;
-
-	return len;
-}
-
-uchar usbFunctionRead(uchar *data, uchar len) {
-
-	uchar i;
-
-	/* check if programmer is in correct read state */
-	if ((prog_state != PROG_STATE_READFLASH) && (prog_state
-			!= PROG_STATE_READEEPROM) && (prog_state != PROG_STATE_TPI_READ)) {
-		return 0xff;
-	}
-
-	/* fill packet TPI mode */
-	if(prog_state == PROG_STATE_TPI_READ)
-	{
-		tpi_read_block(prog_address, data, len);
-		prog_address += len;
-		return len;
-	}
-
-	/* fill packet ISP mode */
-	for (i = 0; i < len; i++) {
-		if (prog_state == PROG_STATE_READFLASH) {
-			data[i] = ispReadFlash(prog_address);
-		} else {
-			data[i] = ispReadEEPROM(prog_address);
-		}
-		prog_address++;
-	}
-
-	/* last packet? */
-	if (len < 8) {
-		prog_state = PROG_STATE_IDLE;
-	}
-
-	return len;
-}
-
-uchar usbFunctionWrite(uchar *data, uchar len) {
-
-	uchar retVal = 0;
-	uchar i;
-
-	/* check if programmer is in correct write state */
-	if ((prog_state != PROG_STATE_WRITEFLASH) && (prog_state
-			!= PROG_STATE_WRITEEEPROM) && (prog_state != PROG_STATE_TPI_WRITE)) {
-		return 0xff;
-	}
-
-	if (prog_state == PROG_STATE_TPI_WRITE)
-	{
-		tpi_write_block(prog_address, data, len);
-		prog_address += len;
-		prog_nbytes -= len;
-		if(prog_nbytes <= 0)
-		{
-			prog_state = PROG_STATE_IDLE;
-			return 1;
-		}
-		return 0;
-	}
-
-	for (i = 0; i < len; i++) {
-
-		if (prog_state == PROG_STATE_WRITEFLASH) {
-			/* Flash */
-
-			if (prog_pagesize == 0) {
-				/* not paged */
-				ispWriteFlash(prog_address, data[i], 1);
-			} else {
-				/* paged */
-				ispWriteFlash(prog_address, data[i], 0);
-				prog_pagecounter--;
-				if (prog_pagecounter == 0) {
-					ispFlushPage(prog_address, data[i]);
-					prog_pagecounter = prog_pagesize;
-				}
-			}
-
-		} else {
-			/* EEPROM */
-			ispWriteEEPROM(prog_address, data[i]);
-		}
-
-		prog_nbytes--;
-
-		if (prog_nbytes == 0) {
-			prog_state = PROG_STATE_IDLE;
-			if ((prog_blockflags & PROG_BLOCKFLAG_LAST) && (prog_pagecounter
-					!= prog_pagesize)) {
-
-				/* last block and page flush pending, so flush it now */
-				ispFlushPage(prog_address, data[i]);
-			}
-
-			retVal = 1; // Need to return 1 when no more data is to be received
-		}
-
-		prog_address++;
-	}
-
-	return retVal;
+	return 0;
 }
 
 int main(void) {
@@ -326,14 +182,22 @@ int main(void) {
 	DDRC = 0x03;
 	PORTC = 0xfe;
 
-	/* init timer */
-	clockInit();
+	// configure timer0 (prescaler 256 or 1024, interrupt on)
+	if ((PINC & (1 << PC2)) == 0)	// SCK jumper
+		TCCR0 |= (1 << CS02) | (1 << CS00);
+	else
+		TCCR0 |= (1 << CS02);
+	TIMSK |= (1 << TOIE0);
 
 	/* main event loop */
 	usbInit();
 	sei();
 	for (;;) {
 		usbPoll();
+		if (ready && usbInterruptIsReady()) {
+			ready = 0;
+			usbSetInterrupt(reportBuffer, sizeof(reportBuffer));
+		}
 	}
 	return 0;
 }

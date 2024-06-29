@@ -59,7 +59,7 @@ the newest features and options.
 
 /* --------------------------- Functional Range ---------------------------- */
 
-#define USB_CFG_HAVE_INTRIN_ENDPOINT    0
+#define USB_CFG_HAVE_INTRIN_ENDPOINT    1
 /* Define this to 1 if you want to compile a version with two endpoints: The
  * default control endpoint 0 and an interrupt-in endpoint 1.
  */
@@ -88,12 +88,12 @@ the newest features and options.
  * The value is in milliamperes. [It will be divided by two since USB
  * communicates power requirements in units of 2 mA.]
  */
-#define USB_CFG_IMPLEMENT_FN_WRITE      1
+#define USB_CFG_IMPLEMENT_FN_WRITE      0
 /* Set this to 1 if you want usbFunctionWrite() to be called for control-out
  * transfers. Set it to 0 if you don't need it and want to save a couple of
  * bytes.
  */
-#define USB_CFG_IMPLEMENT_FN_READ       1
+#define USB_CFG_IMPLEMENT_FN_READ       0
 /* Set this to 1 if you need to send control replies which are generated
  * "on the fly" when usbFunctionRead() is called. If you only want to send
  * data from a static buffer, set it to 0 and return the data from
@@ -112,22 +112,22 @@ the newest features and options.
 
 /* -------------------------- Device Description --------------------------- */
 
-#define  USB_CFG_VENDOR_ID  0xc0, 0x16  /* 5824 in dec, stands for VOTI */
+#define  USB_CFG_VENDOR_ID  0x6d, 0x04  /* Logitech Inc. */
 /* USB vendor ID for the device, low byte first. If you have registered your
  * own Vendor ID, define it here. Otherwise you use obdev's free shared
  * VID/PID pair. Be sure to read USBID-License.txt for rules!
  */
-#define USB_CFG_DEVICE_ID   0xdc, 0x05  /* 1500 in dec, obdev's free PID */
+#define USB_CFG_DEVICE_ID   0x32, 0xc3  /* Gaming Mouse G502 */
 /* This is the ID of the product, low byte first. It is interpreted in the
  * scope of the vendor ID. If you have registered your own VID with usb.org
  * or if you have licensed a PID from somebody else, define it here. Otherwise
  * you use obdev's free shared VID/PID pair. Be sure to read the rules in
  * USBID-License.txt!
  */
-#define USB_CFG_DEVICE_VERSION  0x04, 0x01
+#define USB_CFG_DEVICE_VERSION  0x00, 0x01
 /* Version number of the device: Minor number first, then major number.
  */
-#define	USB_CFG_VENDOR_NAME     'w', 'w', 'w', '.', 'f', 'i', 's', 'c', 'h', 'l', '.', 'd', 'e'
+#define	USB_CFG_VENDOR_NAME     'L', 'o', 'g', 'i', 't', 'e', 'c', 'h', ' ', 'I', 'n', 'c', '.'
 #define USB_CFG_VENDOR_NAME_LEN 13
 /* These two values define the vendor name returned by the USB device. The name
  * must be given as a list of characters under single quotes. The characters
@@ -137,8 +137,8 @@ the newest features and options.
  * obdev's free shared VID/PID pair. See the file USBID-License.txt for
  * details.
  */
-#define	USB_CFG_DEVICE_NAME		'U', 'S', 'B', 'a', 's', 'p'
-#define	USB_CFG_DEVICE_NAME_LEN	6
+#define	USB_CFG_DEVICE_NAME		'G', '5', '0', '2'
+#define	USB_CFG_DEVICE_NAME_LEN	4
 /* Same as above for the device name. If you don't want a device name, undefine
  * the macros. See the file USBID-License.txt before you assign a name.
  */
@@ -151,17 +151,20 @@ the newest features and options.
  * to fine tune control over USB descriptors such as the string descriptor
  * for the serial number.
  */
-#define USB_CFG_DEVICE_CLASS    0xff
+#define USB_CFG_DEVICE_CLASS    0
 #define USB_CFG_DEVICE_SUBCLASS 0
 /* See USB specification if you want to conform to an existing device class.
  */
-#define USB_CFG_INTERFACE_CLASS     0
-#define USB_CFG_INTERFACE_SUBCLASS  0
-#define USB_CFG_INTERFACE_PROTOCOL  0
+// HID Interface Class
+#define USB_CFG_INTERFACE_CLASS     0x03
+// Boot Interface Subclass
+#define USB_CFG_INTERFACE_SUBCLASS  0x01
+// Mouse Protocol
+#define USB_CFG_INTERFACE_PROTOCOL  0x02
 /* See USB specification if you want to conform to an existing device class or
  * protocol.
  */
-#define USB_CFG_HID_REPORT_DESCRIPTOR_LENGTH    0   /* total length of report descriptor */
+#define USB_CFG_HID_REPORT_DESCRIPTOR_LENGTH    50   /* total length of report descriptor */
 /* Define this to the length of the HID report descriptor, if you implement
  * an HID device. Otherwise don't define it or define it to 0.
  */
